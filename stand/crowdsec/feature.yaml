@@ -1,0 +1,5 @@
+---
+# Active feature flags. Overwritten by scripts/run.sh per variant from
+# feature-variant-A.yaml / feature-variant-B.yaml. File must exist on disk
+# because docker-compose bind-mounts it read-only into the crowdsec container.
+- pprof_block_profile

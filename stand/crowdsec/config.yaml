@@ -1,0 +1,36 @@
+common:
+  daemonize: false
+  log_media: stdout
+
+config_paths:
+  config_dir: /etc/crowdsec
+  data_dir: /var/lib/crowdsec/data
+  hub_dir: /etc/crowdsec/hub
+  index_path: /etc/crowdsec/hub/.index.json
+  notification_dir: /etc/crowdsec/notifications
+  plugin_dir: /usr/local/lib/crowdsec/plugins
+
+db_config:
+  type: mysql
+  user: crowdsec
+  password: crowdsec
+  db_name: crowdsec
+  db_path: /var/run/mysqld/mysqld.sock
+  max_open_conns: 250
+
+crowdsec_service:
+  enable: false
+
+api:
+  server:
+    enable: true
+    listen_uri: 0.0.0.0:8080
+    profiles_path: /etc/crowdsec/profiles.yaml
+    online_client:
+      credentials_path: ""
+
+prometheus:
+  enabled: true
+  level: full
+  listen_addr: 0.0.0.0
+  listen_port: 6060

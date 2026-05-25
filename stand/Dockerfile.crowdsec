@@ -1,0 +1,34 @@
+# crowdsec built from upstream tag v1.7.8 + the feature-flag patch
+# (patches/disable-allowlist-ingestion.patch, ~100 lines, 3 files).
+# BUILD_RE2_WASM=1 skips libre2 static deps; regex throughput is irrelevant
+# to the allowlist-call measurement.
+
+FROM golang:1.26-alpine3.23 AS builder
+
+ARG CROWDSEC_REPO=https://github.com/crowdsecurity/crowdsec
+ARG CROWDSEC_TAG=v1.7.8
+ARG BUILD_VERSION=v1.7.8-pr4475
+
+# Alpine pkg name is `pkgconfig`, not pkgconf / pkg-config.
+RUN apk add --no-cache git g++ gcc libc-dev make bash gettext binutils-gold coreutils pkgconfig
+
+WORKDIR /src
+RUN git clone --depth 1 --branch ${CROWDSEC_TAG} ${CROWDSEC_REPO} crowdsec
+
+COPY patches/disable-allowlist-ingestion.patch /tmp/disable-allowlist-ingestion.patch
+WORKDIR /src/crowdsec
+RUN git apply --verbose /tmp/disable-allowlist-ingestion.patch
+
+ENV GOTOOLCHAIN=auto
+RUN make crowdsec BUILD_STATIC=1 BUILD_RE2_WASM=1 BUILD_VERSION=${BUILD_VERSION}
+
+RUN if readelf -l cmd/crowdsec/crowdsec | grep -qi 'interpreter'; then \
+        echo "ERROR: binary is dynamically linked" >&2; exit 1; \
+    fi && echo "binary is statically linked"
+
+RUN strings cmd/crowdsec/crowdsec | grep -q disable_allowlist_ingestion || \
+        (echo "ERROR: disable_allowlist_ingestion symbol missing" >&2 && exit 1)
+
+FROM crowdsecurity/crowdsec:v1.7.8 AS runtime
+COPY --from=builder /src/crowdsec/cmd/crowdsec/crowdsec /usr/local/bin/crowdsec
+ENTRYPOINT ["/usr/local/bin/crowdsec", "-c", "/etc/crowdsec/config.yaml"]

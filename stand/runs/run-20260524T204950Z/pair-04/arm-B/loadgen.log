@@ -1,0 +1,13 @@
+2026/05/24 21:19:05 login http://crowdsec:8080 as "loadgen"
+2026/05/24 21:19:05 token ok (155 chars)
+2026/05/24 21:23:05 arrivals ended; draining in-flight (bounded by deadline*retries)...
+
+=== open-loop result ===
+offered:    2399  (target rate 10.0/s, duration 4m0s)
+attempts:   2399  (retries 0)
+goodput:    2399  (2xx logical)
+timeouts:   0
+errors:     0
+http5xx:    0
+degenerate: false
+metrics:    /out/metrics.jsonl

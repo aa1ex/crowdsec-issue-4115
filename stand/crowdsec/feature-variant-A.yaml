@@ -1,0 +1,3 @@
+---
+# Variant A: allowlist ingestion active (vanilla upstream behavior).
+- pprof_block_profile

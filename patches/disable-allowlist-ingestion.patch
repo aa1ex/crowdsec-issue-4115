@@ -1,0 +1,108 @@
+diff --git a/pkg/apiserver/alerts_test.go b/pkg/apiserver/alerts_test.go
+index c488347a..f117dd56 100644
+--- a/pkg/apiserver/alerts_test.go
++++ b/pkg/apiserver/alerts_test.go
+@@ -13,12 +13,13 @@ import (
+ 
+ 	"github.com/gin-gonic/gin"
+ 	"github.com/go-openapi/strfmt"
++	logtest "github.com/sirupsen/logrus/hooks/test"
+ 	"github.com/stretchr/testify/assert"
+ 	"github.com/stretchr/testify/require"
+-	logtest "github.com/sirupsen/logrus/hooks/test"
+ 
+ 	"github.com/crowdsecurity/crowdsec/pkg/csconfig"
+ 	"github.com/crowdsecurity/crowdsec/pkg/database"
++	"github.com/crowdsecurity/crowdsec/pkg/fflag"
+ 	"github.com/crowdsecurity/crowdsec/pkg/models"
+ )
+ 
+@@ -201,6 +202,36 @@ func TestCreateAllowlistedAlert(t *testing.T) {
+ 	assert.Contains(t, w.Body.String(), "127.0.0.1")
+ }
+ 
++func TestCreateAllowlistedAlertIngestionDisabled(t *testing.T) {
++	ctx := t.Context()
++
++	require.NoError(t, fflag.DisableAllowlistIngestion.Set(true))
++	t.Cleanup(func() { _ = fflag.DisableAllowlistIngestion.Set(false) })
++
++	lapi := SetupLAPITest(t, ctx)
++
++	allowlist, err := lapi.DBClient.CreateAllowList(ctx, "test", "test", "", false)
++	require.NoError(t, err)
++	added, err := lapi.DBClient.AddToAllowlist(ctx, allowlist, []*models.AllowlistItem{
++		{Value: "10.0.0.0/24"},
++		{Value: "127.0.0.1"},
++	})
++	require.NoError(t, err)
++	assert.Equal(t, 2, added)
++
++	// Source 10.0.0.42 is inside the allowlisted 10.0.0.0/24. Without the
++	// flag this alert is filtered (see TestCreateAllowlistedAlert). With
++	// the flag enabled the allowlist lookup is skipped, so the alert must
++	// be ingested instead of dropped.
++	alertContent := GetAlertReaderFromFile(t, "./tests/alert_allowlisted.json")
++	w := lapi.RecordResponse(t, ctx, http.MethodPost, "/v1/alerts", alertContent, "password")
++	assert.Equal(t, http.StatusCreated, w.Code)
++
++	w = lapi.RecordResponse(t, ctx, "GET", "/v1/alerts", emptyBody, "password")
++	assert.Equal(t, http.StatusOK, w.Code)
++	assert.Contains(t, w.Body.String(), "10.0.0.42")
++}
++
+ func TestCreateAlertChannels(t *testing.T) {
+ 	ctx := t.Context()
+ 	apiServer, config := NewAPIServer(t, ctx)
+diff --git a/pkg/apiserver/controllers/v1/alerts.go b/pkg/apiserver/controllers/v1/alerts.go
+index f3844eed..75048b3d 100644
+--- a/pkg/apiserver/controllers/v1/alerts.go
++++ b/pkg/apiserver/controllers/v1/alerts.go
+@@ -15,6 +15,7 @@ import (
+ 	log "github.com/sirupsen/logrus"
+ 
+ 	"github.com/crowdsecurity/crowdsec/pkg/database/ent"
++	"github.com/crowdsecurity/crowdsec/pkg/fflag"
+ 	"github.com/crowdsecurity/crowdsec/pkg/models"
+ 	"github.com/crowdsecurity/crowdsec/pkg/types"
+ )
+@@ -125,6 +126,10 @@ func (c *Controller) sendAlertToPluginChannel(alert *models.Alert, profileID uin
+ }
+ 
+ func (c *Controller) isAllowListed(ctx context.Context, alert *models.Alert) (bool, string) {
++	if fflag.DisableAllowlistIngestion.IsEnabled() {
++		return false, ""
++	}
++
+ 	// If we have decisions, it comes from cscli that already checked the allowlist
+ 	if len(alert.Decisions) > 0 {
+ 		return false, ""
+diff --git a/pkg/fflag/crowdsec.go b/pkg/fflag/crowdsec.go
+index 8a5788c7..28cba04d 100644
+--- a/pkg/fflag/crowdsec.go
++++ b/pkg/fflag/crowdsec.go
+@@ -11,9 +11,10 @@ var (
+ 	// The state will be set to deprecated for linux only.
+ 	Re2GrokSupport = &Feature{Name: "re2_grok_support", Description: "Enable RE2 support for GROK patterns"}
+ 	// This one is only available on OS where RE2 support is enabled by default (linux only at the moment)
+-	Re2DisableGrokSupport  = &Feature{Name: "re2_disable_grok_support", Description: "Disable RE2 support for GROK patterns (linux only)"}
+-	Re2RegexpInfileSupport = &Feature{Name: "re2_regexp_in_file_support", Description: "Enable RE2 support for RegexpInFile expr helper"}
+-	PProfBlockProfile      = &Feature{Name: "pprof_block_profile", Description: "Enable pprof block/mutex profiling. Do not use unless instructed by CrowdSec support"}
++	Re2DisableGrokSupport     = &Feature{Name: "re2_disable_grok_support", Description: "Disable RE2 support for GROK patterns (linux only)"}
++	Re2RegexpInfileSupport    = &Feature{Name: "re2_regexp_in_file_support", Description: "Enable RE2 support for RegexpInFile expr helper"}
++	PProfBlockProfile         = &Feature{Name: "pprof_block_profile", Description: "Enable pprof block/mutex profiling. Do not use unless instructed by CrowdSec support"}
++	DisableAllowlistIngestion = &Feature{Name: "disable_allowlist_ingestion", Description: "Skip the allowlist lookup during alert ingestion"}
+ )
+ 
+ //revive:disable:if-return
+@@ -38,6 +39,10 @@ func RegisterAllFeatures() error {
+ 		return err
+ 	}
+ 
++	if err := Crowdsec.RegisterFeature(DisableAllowlistIngestion); err != nil {
++		return err
++	}
++
+ 	if runtime.GOOS == "linux" {
+ 		// This cannot actually fail in a release, so the state will always be set
+ 		if err := Crowdsec.RegisterFeature(Re2DisableGrokSupport); err != nil {

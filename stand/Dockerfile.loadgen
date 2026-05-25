@@ -1,0 +1,8 @@
+FROM golang:1.26-alpine AS builder
+WORKDIR /src
+COPY stand/loadgen /src/
+RUN CGO_ENABLED=0 go build -o /loadgen .
+
+FROM alpine:3.20
+COPY --from=builder /loadgen /usr/local/bin/loadgen
+ENTRYPOINT ["/usr/local/bin/loadgen"]

@@ -1,0 +1,4 @@
+---
+# Variant B: allowlist ingestion skipped (PR #4475 feature flag enabled).
+- pprof_block_profile
+- disable_allowlist_ingestion

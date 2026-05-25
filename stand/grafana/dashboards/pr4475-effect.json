@@ -1,0 +1,113 @@
+{
+  "schemaVersion": 39,
+  "uid": "pr4475",
+  "title": "PR4475 — allowlist call effect on LAPI",
+  "tags": ["pr4475"],
+  "timezone": "browser",
+  "refresh": "10s",
+  "time": {"from": "now-30m", "to": "now"},
+  "annotations": {
+    "list": [
+      {
+        "name": "Variant transitions",
+        "datasource": {"type": "grafana", "uid": "-- Grafana --"},
+        "enable": true,
+        "iconColor": "rgba(255, 96, 96, 1)",
+        "target": {
+          "limit": 100,
+          "matchAny": true,
+          "tags": ["variant-A", "variant-B"],
+          "type": "tags"
+        }
+      }
+    ]
+  },
+  "panels": [
+    {
+      "id": 1,
+      "type": "timeseries",
+      "title": "POST request latency p50 / p95 / p99 (all POST endpoints)",
+      "description": "Histogram_quantile of cs_lapi_request_duration_seconds for method=POST. In v1.7.x the per-endpoint label was removed; /v1/alerts dominates the POST workload in this stand.",
+      "gridPos": {"x": 0, "y": 0, "w": 24, "h": 9},
+      "targets": [
+        {"refId": "A", "expr": "histogram_quantile(0.50, sum by (le) (rate(cs_lapi_request_duration_seconds_bucket{method=\"POST\"}[1m])))", "legendFormat": "p50"},
+        {"refId": "B", "expr": "histogram_quantile(0.95, sum by (le) (rate(cs_lapi_request_duration_seconds_bucket{method=\"POST\"}[1m])))", "legendFormat": "p95"},
+        {"refId": "C", "expr": "histogram_quantile(0.99, sum by (le) (rate(cs_lapi_request_duration_seconds_bucket{method=\"POST\"}[1m])))", "legendFormat": "p99"}
+      ],
+      "fieldConfig": {"defaults": {"unit": "s"}, "overrides": []},
+      "datasource": {"type": "prometheus", "uid": "prometheus"}
+    },
+    {
+      "id": 2,
+      "type": "timeseries",
+      "title": "MySQL SELECTs per POST /v1/alerts request",
+      "description": "Com_select rate divided by POST /v1/alerts request rate. With BATCH=10 alerts per request, allowlist active should add ~10 SELECTs per request (one per alert); without allowlist the baseline is much lower. This panel makes the effect immediately visible without statistics.",
+      "gridPos": {"x": 0, "y": 9, "w": 24, "h": 8},
+      "targets": [
+        {"refId": "A", "expr": "rate(mysql_global_status_commands_total{command=\"select\"}[1m]) / on() group_right sum(rate(cs_lapi_route_requests_total{route=\"/v1/alerts\",method=\"POST\"}[1m]))", "legendFormat": "SELECTs / POST request"}
+      ],
+      "fieldConfig": {"defaults": {"unit": "short"}, "overrides": []},
+      "datasource": {"type": "prometheus", "uid": "prometheus"}
+    },
+    {
+      "id": 3,
+      "type": "timeseries",
+      "title": "POST /v1/alerts request rate",
+      "description": "Rate of POST requests per route from cs_lapi_route_requests_total.",
+      "gridPos": {"x": 0, "y": 17, "w": 12, "h": 7},
+      "targets": [
+        {"refId": "A", "expr": "sum by (route) (rate(cs_lapi_route_requests_total{method=\"POST\"}[1m]))", "legendFormat": "{{route}}"}
+      ],
+      "fieldConfig": {"defaults": {"unit": "ops"}, "overrides": []},
+      "datasource": {"type": "prometheus", "uid": "prometheus"}
+    },
+    {
+      "id": 4,
+      "type": "timeseries",
+      "title": "MySQL SELECT rate (Com_select)",
+      "description": "Should be HIGHER in variant A (allowlist adds +1 SELECT per alert) than in variant B.",
+      "gridPos": {"x": 12, "y": 17, "w": 12, "h": 7},
+      "targets": [
+        {"refId": "A", "expr": "rate(mysql_global_status_commands_total{command=\"select\"}[1m])", "legendFormat": "Com_select rate"}
+      ],
+      "fieldConfig": {"defaults": {"unit": "ops"}, "overrides": []},
+      "datasource": {"type": "prometheus", "uid": "prometheus"}
+    },
+    {
+      "id": 5,
+      "type": "timeseries",
+      "title": "Crowdsec process CPU",
+      "description": "Should be HIGHER in variant A while allowlist call runs per alert.",
+      "gridPos": {"x": 0, "y": 24, "w": 12, "h": 7},
+      "targets": [
+        {"refId": "A", "expr": "rate(process_cpu_seconds_total{job=\"crowdsec\"}[1m]) * 100", "legendFormat": "CPU %"}
+      ],
+      "fieldConfig": {"defaults": {"unit": "percent"}, "overrides": []},
+      "datasource": {"type": "prometheus", "uid": "prometheus"}
+    },
+    {
+      "id": 6,
+      "type": "timeseries",
+      "title": "MySQL threads (running + connected)",
+      "description": "Concurrency at the pool. A spike here indicates pool pressure.",
+      "gridPos": {"x": 12, "y": 24, "w": 12, "h": 7},
+      "targets": [
+        {"refId": "A", "expr": "mysql_global_status_threads_running", "legendFormat": "threads_running"},
+        {"refId": "B", "expr": "mysql_global_status_threads_connected", "legendFormat": "threads_connected"}
+      ],
+      "datasource": {"type": "prometheus", "uid": "prometheus"}
+    },
+    {
+      "id": 7,
+      "type": "timeseries",
+      "title": "Crowdsec process memory (RSS)",
+      "description": "Should be flat in steady state. Growth = leak.",
+      "gridPos": {"x": 0, "y": 31, "w": 24, "h": 6},
+      "targets": [
+        {"refId": "A", "expr": "process_resident_memory_bytes{job=\"crowdsec\"}", "legendFormat": "RSS"}
+      ],
+      "fieldConfig": {"defaults": {"unit": "bytes"}, "overrides": []},
+      "datasource": {"type": "prometheus", "uid": "prometheus"}
+    }
+  ]
+}

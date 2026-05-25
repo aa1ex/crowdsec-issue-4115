@@ -1,0 +1,15 @@
+global:
+  scrape_interval: 15s
+  evaluation_interval: 15s
+
+scrape_configs:
+  - job_name: mysql
+    static_configs:
+      - targets: ["mysqld-exporter:9104"]
+  - job_name: crowdsec
+    metrics_path: /metrics
+    static_configs:
+      - targets: ["crowdsec:6060"]
+  - job_name: prometheus_self
+    static_configs:
+      - targets: ["localhost:9090"]

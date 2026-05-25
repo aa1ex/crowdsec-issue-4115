@@ -1,0 +1,8 @@
+{
+  "arm": "B", "start_unix": 1779660653,
+  "warmup_s": 30, "steady_s": 180, "drain_s": 30, "cpu_sample_s": 60,
+  "rate": 10, "deadline": "5s", "batch": 10, "retries": 1,
+  "pool_size": 250,
+  "lapi_endpoint": "http://crowdsec:8080",
+  "cs_info": "cs_info{version=\"v1.7.8-pr4475-6322745\"} 0"
+}

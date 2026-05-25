@@ -1,0 +1,123 @@
+# Single-machine reproducer for PR #4475 (`disable_allowlist_ingestion`).
+#
+# Default `up` brings up MySQL + crowdsec; loadgen is built but started on
+# demand by the orchestrator; mysqld-exporter + prometheus + grafana sit
+# behind the `observability` profile (opt-in for live dashboards, not used
+# by the measurement itself).
+
+name: pr4475-stand
+
+services:
+
+  mysql:
+    image: mysql:8.4
+    container_name: pr4475-stand-mysql
+    environment:
+      MYSQL_ROOT_PASSWORD: rootpass
+      MYSQL_DATABASE: crowdsec
+      MYSQL_USER: crowdsec
+      MYSQL_PASSWORD: crowdsec
+    volumes:
+      - mysql-data:/var/lib/mysql
+      - mysql-sock:/var/run/mysqld
+      - ./mysql/init-exporter.sql:/docker-entrypoint-initdb.d/01-exporter.sql:ro
+    command:
+      - --socket=/var/run/mysqld/mysqld.sock
+      - --max-connections=1024
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-S", "/var/run/mysqld/mysqld.sock", "-uroot", "-prootpass"]
+      interval: 5s
+      timeout: 3s
+      retries: 30
+
+  crowdsec:
+    build:
+      context: ..
+      dockerfile: stand/Dockerfile.crowdsec
+    image: pr4475-stand-crowdsec:latest
+    container_name: pr4475-stand-lapi
+    depends_on:
+      mysql:
+        condition: service_healthy
+    ports:
+      - "127.0.0.1:8080:8080"
+      - "127.0.0.1:6060:6060"
+    volumes:
+      - ./crowdsec/config.yaml:/etc/crowdsec/config.yaml:ro
+      - ./crowdsec/profiles.yaml:/etc/crowdsec/profiles.yaml:ro
+      - ./crowdsec/acquis.yaml:/etc/crowdsec/acquis.yaml:ro
+      - ./crowdsec/feature.yaml:/etc/crowdsec/feature.yaml:ro
+      - crowdsec-data:/var/lib/crowdsec/data
+      - mysql-sock:/var/run/mysqld:ro
+
+  mysqld-exporter:
+    image: prom/mysqld-exporter:v0.17.2
+    container_name: pr4475-stand-mysqld-exporter
+    profiles: ["observability"]
+    depends_on:
+      mysql:
+        condition: service_healthy
+    command:
+      - --config.my-cnf=/etc/mysqld_exporter/.my.cnf
+      - --mysqld.address=:0
+      - --mysqld.username=
+      - --collect.global_status
+      - --collect.global_variables
+      - --collect.info_schema.innodb_metrics
+      - --no-collect.info_schema.tables
+      - --no-collect.slave_status
+      - --web.listen-address=:9104
+    volumes:
+      - ./exporter.my.cnf:/etc/mysqld_exporter/.my.cnf:ro
+      - mysql-sock:/var/run/mysqld:ro
+
+  prometheus:
+    image: prom/prometheus:v3.5.0
+    container_name: pr4475-stand-prometheus
+    profiles: ["observability"]
+    command:
+      - --config.file=/etc/prometheus/prometheus.yml
+      - --storage.tsdb.path=/prometheus
+      - --storage.tsdb.retention.time=24h
+      - --web.enable-admin-api
+      - --web.listen-address=0.0.0.0:9090
+    ports:
+      - "127.0.0.1:9090:9090"
+    volumes:
+      - ./prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prom-data:/prometheus
+
+  grafana:
+    image: grafana/grafana:12.2.8
+    container_name: pr4475-stand-grafana
+    profiles: ["observability"]
+    environment:
+      GF_SECURITY_ADMIN_USER: admin
+      GF_SECURITY_ADMIN_PASSWORD: admin
+      GF_USERS_ALLOW_SIGN_UP: "false"
+      GF_AUTH_ANONYMOUS_ENABLED: "true"
+      GF_AUTH_ANONYMOUS_ORG_ROLE: Viewer
+    ports:
+      - "127.0.0.1:3000:3000"
+    volumes:
+      - ./grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./grafana/dashboards:/var/lib/grafana/dashboards:ro
+
+  loadgen:
+    build:
+      context: ..
+      dockerfile: stand/Dockerfile.loadgen
+    image: pr4475-stand-loadgen:latest
+    container_name: pr4475-stand-loadgen
+    profiles: ["control"]
+    depends_on:
+      crowdsec:
+        condition: service_started
+    volumes:
+      - ./runs:/runs
+
+volumes:
+  mysql-data:
+  mysql-sock:
+  crowdsec-data:
+  prom-data:
